@@ -1,6 +1,14 @@
 #import "uYouPlus.h"
 #import "uYouPlusPatches.h"
 
+// YouTube ships the community-post fullscreen image viewer, but gates its
+// command behind this server-controlled config flag in sideloaded builds.
+%hook YTGlobalConfig
+- (BOOL)iosEnableBackstageFullscreenImageViewer {
+    return YES;
+}
+%end
+
 // Tweak's bundle for Localizations support - @PoomSmart - https://github.com/PoomSmart/YouPiP/commit/aea2473f64c75d73cab713e1e2d5d0a77675024f
 NSBundle *uYouPlusBundle() {
     static NSBundle *bundle = nil;
