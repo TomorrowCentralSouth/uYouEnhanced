@@ -16,8 +16,8 @@ on:
         default: "3.0.4"
         required: true
         type: string
-      decrypted_youtube_url:
-        description: "Direct URL of the decrypted YouTube IPA"
+      uyouenhanced_ipa_url:
+        description: "Direct URL of the existing uYouEnhanced 20.10.4 IPA"
         default: ""
         required: true
         type: string
@@ -59,11 +59,13 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout Main
+      - name: Checkout matching uYouEnhanced source
         uses: actions/checkout@v5
         with:
+          repository: jaydenjcpy/uYouEnhanced
+          ref: v20.10.4-3.0.4-(2)
           path: main
-          ref: ${{ github.event.inputs.commit_id || github.ref }}
+          submodules: recursive
           submodules: recursive
 
       - name: Install Dependencies
@@ -115,13 +117,13 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
 
-      - name: Hash YT ipa url
+      - name: Hash existing uYouEnhanced IPA URL
         run: |
-          URL_YT="$(jq -r '.inputs.decrypted_youtube_url' $GITHUB_EVENT_PATH)"
+          URL_YT="$(jq -r '.inputs.uyouenhanced_ipa_url' $GITHUB_EVENT_PATH)"
           echo ::add-mask::$URL_YT
           echo URL_YT=$URL_YT >> $GITHUB_ENV
 
-      - name: Prepare YouTube iPA
+      - name: Prepare existing uYouEnhanced IPA
         id: prepare_youtube
         run: |
           wget "$YOUTUBE_URL" --quiet --no-verbose -O main/YouTube.ipa
@@ -129,32 +131,54 @@ jobs:
           mv YouTube.ipa YouTube.zip
           unzip -q YouTube.zip
           youtube_version=$(defaults read "$(pwd)/Payload/YouTube.app/Info" CFBundleVersion)
-          echo "==> YouTube v$youtube_version downloaded!"
-          sed -i '' "17s#.*#YOUTUBE_VERSION = ${youtube_version}#g" Makefile
+          echo "==> YouTube v$youtube_version in the supplied IPA"
+          if [[ "$youtube_version" != 20.10.4* ]]; then
+            echo "Expected the 20.10.4 uYouEnhanced IPA; found $youtube_version"
+            exit 1
+          fi
+          sed -i '' "s/^YOUTUBE_VERSION = .*/YOUTUBE_VERSION = ${youtube_version}/" Makefile
           echo "youtube_version=${youtube_version}" >> $GITHUB_OUTPUT
 
         env:
           THEOS: ${{ github.workspace }}/theos
           YOUTUBE_URL: ${{ env.URL_YT }}
 
-      - name: Fix compiling & Build Package
+      - name: Rebuild and replace the existing tweak library
         id: build_package
         run: |
-          cd ${{ github.workspace }}/main
-          sed -i '' "30s#.*#BUNDLE_ID = ${{ env.BUNDLE_ID }}#g" Makefile                          # Modify the bundle ID
-          sed -i '' "29s#.*#DISPLAY_NAME = ${{ env.APP_NAME }}#g" Makefile                        # Modify the app name
-          sed -i '' "1s#.*#export TARGET = iphone:clang:${{ inputs.sdk_version }}:14.0#g" Makefile # Modify the SDK version
-          make package THEOS_PACKAGE_SCHEME=rootless IPA=Payload/YouTube.app FINALPACKAGE=1
-          echo "package=$(ls -t packages | head -n1)" >>$GITHUB_OUTPUT
-          echo -e "==> \033[1mSHASUM256: $(shasum -a 256 packages/*.ipa | cut -f1 -d' ')\033[0m"
-          echo -e "==> \033[1mBundle ID: ${{ env.BUNDLE_ID }}\033[0m"
-
+          cd ${GITHUB_WORKSPACE}/main
+          sed -i '' "s/^export TARGET = .*/export TARGET = iphone:clang:${{ inputs.sdk_version }}:15.0/" Makefile
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('Sources/uYouPlus.xm')
+          text = source.read_text()
+          marker = '#import "uYouPlusPatches.h"\n'
+          patch = '''\n// Enable YouTube's built-in community-post fullscreen image viewer.
+          %hook YTGlobalConfig
+          - (BOOL)iosEnableBackstageFullscreenImageViewer {
+              return YES;
+          }
+          %end
+          \n'''
+          if 'iosEnableBackstageFullscreenImageViewer' not in text:
+              if marker not in text:
+                  raise SystemExit('Could not find patch insertion point in source')
+              source.write_text(text.replace(marker, marker + patch, 1))
+          PY
+          make all THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
+          dylib="$(find .theos/obj/release -type f -name uYouEnhanced.dylib -print -quit)"
+          test -n "$dylib"
+          target="Payload/YouTube.app/Frameworks/uYouEnhanced.dylib"
+          test -f "$target"
+          cp "$dylib" "$target"
+          rm -f YouTube.zip
+          zip -qr patched-uYouEnhanced.ipa Payload
+          echo "package=patched-uYouEnhanced.ipa" >> "$GITHUB_OUTPUT"
+          shasum -a 256 patched-uYouEnhanced.ipa
         env:
           THEOS: ${{ github.workspace }}/theos
           UYOU_VERSION: ${{ inputs.uyou_version }}
-          BUNDLE_ID: ${{ inputs.bundle_id }}
-          APP_NAME: ${{ inputs.app_name }}
-
+          YOUTUBE_VERSION: ${{ steps.prepare_youtube.outputs.youtube_version }}
       - name: Upload Artifact
         if: ${{ inputs.upload_artifact }}
         uses: actions/upload-artifact@v5
@@ -163,7 +187,7 @@ jobs:
           YOUTUBE_VERSION: ${{ steps.prepare_youtube.outputs.youtube_version }}
         with:
           name: uYouEnhanced_${{ env.YOUTUBE_VERSION }}_${{ env.UYOU_VERSION }}
-          path: ${{ github.workspace }}/main/packages/${{ steps.build_package.outputs.package }}
+          path: ${{ github.workspace }}/main/${{ steps.build_package.outputs.package }}
           if-no-files-found: error
 
       - name: Create Release
@@ -177,5 +201,5 @@ jobs:
         with:
           tag_name: v${{ env.YOUTUBE_VERSION }}-${{ env.UYOU_VERSION }}-(${{ github.run_number }})
           name: v${{ env.YOUTUBE_VERSION }}-${{ env.UYOU_VERSION }}-(${{ github.run_number }})
-          files: main/packages/*.ipa
+          files: main/patched-uYouEnhanced.ipa
           draft: true
