@@ -145,7 +145,8 @@ jobs:
               source.write_text(text.replace(marker, marker + patch, 1))
           PY
           make all THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
-          dylib="$(find .theos/obj/release -type f -name uYouEnhanced.dylib -print -quit)"
+          find .theos/obj -type f -name uYouEnhanced.dylib -print
+          dylib="$(find .theos/obj -type f -name uYouEnhanced.dylib -print -quit)"
           test -n "$dylib"
           target="Payload/YouTube.app/Frameworks/uYouEnhanced.dylib"
           test -f "$target"
