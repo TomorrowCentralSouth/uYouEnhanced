@@ -21,29 +21,9 @@ on:
         default: ""
         required: true
         type: string
-      bundle_id:
-        description: "Modify the bundle ID"
-        default: "com.google.ios.youtube"
-        required: true
-        type: string
-      app_name:
-        description: "Modify the app name"
-        default: "YouTube"
-        required: true
-        type: string
-      commit_id:
-        description: "(Optional) Commit ID to build at"
-        default: ""
-        required: false
-        type: string
       upload_artifact:
         description: "Upload IPA as artifact"
         default: true
-        required: false
-        type: boolean
-      create_release:
-        description: "Create a draft release"
-        default: false
         required: false
         type: boolean
   
@@ -65,7 +45,6 @@ jobs:
           repository: jaydenjcpy/uYouEnhanced
           ref: v20.10.4-3.0.4-(2)
           path: main
-          submodules: recursive
           submodules: recursive
 
       - name: Install Dependencies
@@ -190,16 +169,3 @@ jobs:
           path: ${{ github.workspace }}/main/${{ steps.build_package.outputs.package }}
           if-no-files-found: error
 
-      - name: Create Release
-        if: ${{ inputs.create_release }}
-        id: create_release
-        uses: softprops/action-gh-release@v2.5.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UYOU_VERSION: ${{ inputs.uyou_version }}
-          YOUTUBE_VERSION: ${{ steps.prepare_youtube.outputs.youtube_version }}
-        with:
-          tag_name: v${{ env.YOUTUBE_VERSION }}-${{ env.UYOU_VERSION }}-(${{ github.run_number }})
-          name: v${{ env.YOUTUBE_VERSION }}-${{ env.UYOU_VERSION }}-(${{ github.run_number }})
-          files: main/patched-uYouEnhanced.ipa
-          draft: true
